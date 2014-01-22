@@ -1,0 +1,170 @@
+#!/bin/bash
+#
+# Simple Bash Script To Check Tungsten Latency
+# Zabbix Plugin For NRPE
+#
+# This script accepts two arguments, {{-w}} and {{-c}}.  The {{-w}} flag is 
+# the level at which a warning should be returned.  {{-c}} sets the level for 
+# a critical return value.  The script uses the maximum latency of any slave 
+# to determine the return value.
+#
+OK_STATE=0
+CRITICAL_STATE=1
+THOME=`dirname $0`
+
+function display_help()
+{
+  echo "Usage: ./check_tungsten_latency -w warning_level -c critical_level [-h]"
+  echo " -w                     Throw a warning alert if the maximum latency"
+  echo "                          is above this level"
+  echo " -c                     Throw a critical alert if the maximum latency"
+  echo "                          is above this level"
+  echo " --perfdata             Display performance data of the latency"
+  echo " --perslave-perfdata    Show performance latency values of each slave."
+  echo "                          If this is not set the maximum latency will be"
+  echo "                          displayed in the performace data"
+  echo " -h                     Display this message"
+  exit 0
+}
+
+# We will use this to make some floating point comparisons
+function float_cond()
+{
+    local cond=0
+    if [[ $# -gt 0 ]]; then
+        cond=$(echo "$*" | bc -q 2>&1)
+        if [[ $? -ne 0 ]]; then
+            echo "Error: $cond"
+            exit 1
+        fi
+        if [[ -z "$cond" ]]; then cond=0; fi
+        if [[ "$cond" != 0  &&  "$cond" != 1 ]]; then cond=0; fi
+    fi
+    local stat=$((cond == 0))
+    return $stat
+}
+
+warning_level=0
+critical_level=0
+perfdata="false"
+performance_data_default_glue=""
+performance_data_suffix=""
+perfdata_allslaves=""
+
+for arg
+do
+  delim=""
+  case "$arg" in
+  #translate --gnu-long-options to -g (short options)
+    --perfdata) args="${args}-p ";;
+    --perslave-perfdata) args="${args}-s ";;
+    #pass through anything else
+    *) [[ "${arg:0:1}" == "-" ]] || delim="\""
+      args="${args}${delim}${arg}${delim} ";;
+  esac
+done
+ 
+#Reset the positional parameters to the short options
+eval set -- $args
+
+while getopts "w:c:h:nps" Option
+do
+  case $Option in
+    w	)
+  	warning_level=$OPTARG
+  	;;
+  	c )
+  	critical_level=$OPTARG
+    ;;
+    h )
+    display_help
+    ;;
+    p )
+    perfdata="true"
+    ;;
+    s   )
+    perfdata_allslaves="true"
+    ;;
+  esac
+done
+if float_cond "$warning_level == 0"; then
+  echo "Error: warning_level has not been set"
+  echo ""
+  display_help
+fi
+
+if float_cond "$critical_level == 0"; then
+  echo "Error: critical_level has not been set"
+  echo ""
+  display_help
+fi
+
+if [ "$perfdata" == "true" ]; then
+  performance_data_default_glue=" "
+  performance_data_suffix=";$warning_level;$critical_level;;"
+fi
+
+error_message=""
+error_messaage_glue=""
+performance_data_glue=""
+performance_data="| "
+max_latency=0
+
+manager_running=`${THOME}/../../tungsten-manager/bin/manager status | grep "PID" | wc -l`
+# Check the manager status
+if [ $manager_running -eq 0 ]; then
+  echo "CRITICAL: Manager is not running"
+  exit $CRITICAL_STATE
+fi
+
+latency_values=`echo "ls -l" | ${THOME}/../../tungsten-manager/bin/cctrl | grep -E "REPLICATOR\(role=slave|appliedLatency" | tr -d "| "`
+
+current_slave=""
+for line in $latency_values
+do
+  if [[ $current_slave == "" ]]
+  then
+    current_slave=`echo $line | grep "REPLICATOR" | cut -f 1 -d ":"`
+  else
+    applied_latency=`echo $line | grep "appliedLatency" | cut -f 2 -d ":"`
+    
+    if float_cond "$applied_latency > $max_latency"; then
+      max_latency=$applied_latency
+    fi
+    
+    if float_cond "$applied_latency > $warning_level"; then
+      error_message="$error_message$error_message_glue$current_slave=$applied_latency""s"
+      error_message_glue=", "
+    fi
+    
+    if float_cond "$applied_latency == -1"; then
+      error_message="$error_message$error_message_glue$current_slave is missing latency information"
+      error_message_glue=", "
+    fi
+
+    performance_data="$performance_data$performance_data_glue$current_slave=$applied_latency$performance_data_suffix"
+    performance_data_glue="$performance_data_default_glue"
+    current_slave=""
+  fi
+done
+
+if [ "$perfdata_allslaves" != "true" ]; then
+	 performance_data="|  max_latency=${max_latency}$performance_data_suffix"
+fi
+
+if [ "$perfdata" == "false" ]; then
+  performance_data=""
+fi
+
+if float_cond "$max_latency > $critical_level"; then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+if [[ $error_message != "" ]]; then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+echo $OK_STATE
+exit $OK_STATE

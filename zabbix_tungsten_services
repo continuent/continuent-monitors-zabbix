@@ -1,0 +1,89 @@
+#!/bin/bash
+#
+# Simple Bash Script To Check Tungsten Services
+# Zabbix Plugin For NRPE
+#
+# This script accepts two arguments, {{-r}} and {{-c}}.  The {{-r}} argument 
+# will tell the script to check that the replicator and manager services are 
+# running.  The {{-c}} argument will check the connector service, the 
+# arguments may be given individually or together.  If any service is not 
+# running, the script will return a critical error.
+#
+OK_STATE=0
+CRITICAL_STATE=1
+THOME=`dirname $0`
+
+function display_help
+{
+  echo "Usage: ./check_tungsten_latency [-r] [-c] [-h]"
+  echo " -r     Check the replicator and manager services"
+  echo " -c     Check the connector service"
+  echo " -h     Display this message"
+  exit 0
+}
+
+services_checked=""
+services_checked_glue=""
+services_stopped=""
+services_stopped_glue=""
+stopped_count=0
+
+while getopts "rch" Option
+do
+  case $Option in
+    r	)
+    # Mark that the replicator and manager were checked
+    services_checked="${services_checked}${services_checked_glue}Replicator, Manager"
+    services_checked_glue=", "
+    
+    replicator_running=`${THOME}/../../tungsten-replicator/bin/replicator status | grep "PID" | wc -l`
+    # Check the replicator status
+    if [ $replicator_running -eq 0 ]; then
+  	  services_stopped="${services_stopped}${services_stopped_glue}Replicator"
+  	  services_stopped_glue=", "
+  	  stopped_count=$(($stopped_count+1))
+  	fi
+  	
+    manager_running=`${THOME}/../../tungsten-manager/bin/manager status | grep "PID" | wc -l`
+  	# Check the manager status
+  	if [ $manager_running -eq 0 ]; then
+  	  services_stopped="${services_stopped}${services_stopped_glue}Manager"
+  	  services_stopped_glue=", "
+  	  stopped_count=$(($stopped_count+1))
+  	fi
+  	;;
+  	c )
+  	# Mark that the connector was checked
+    services_checked="${services_checked}${services_checked_glue}Connector"
+    services_checked_glue=", "
+    
+    connector_running=`${THOME}/../../tungsten-connector/bin/connector status | grep "PID" | wc -l`
+    # Check the connector status
+  	if [ $connector_running -eq 0 ]; then
+  	  services_stopped="${services_stopped}${services_stopped_glue}Connector"
+  	  services_stopped_glue=", "
+  	  stopped_count=$(($stopped_count+1))
+  	fi
+    ;;
+    h )
+    display_help
+    ;;
+  esac
+done
+
+# One of the services isn't running
+if [ $stopped_count -gt 0 ]
+then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+# Ensure that something was checked
+if [[ $services_checked == "" ]]; then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+# Everything is running
+echo $OK_STATE
+exit $OK_STATE

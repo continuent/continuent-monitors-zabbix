@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# Simple Bash Script To Check Tungsten Services
+# Zabbix Agent Plugin
+#
+# It will return a warning if any 
+# of Tungsten resources is not in an {{ONLINE}} state.  It uses the output of 
+# the {{ls resources}} command to determine the current state.
+#
+OK_STATE=0
+CRITICAL_STATE=1
+THOME=`dirname $0`
+
+error_message=""
+error_messaage_glue=""
+offline_count=0
+dataservice=""
+
+function display_help()
+{
+  echo "Usage: ./zabbix_tungsten_online -s dataservice [-h]"
+  echo " -s                     The data service you would like to check"
+  echo " -h                     Display this message"
+  exit 0
+}
+
+while getopts "s:h" Option
+do
+  case $Option in
+    h )
+    display_help
+    ;;
+    s   )
+    dataservice=$OPTARG
+    ;;
+  esac
+done
+
+manager_running=`${THOME}/../../tungsten-manager/bin/manager status | grep "PID" | wc -l`
+# Check the manager status
+if [ $manager_running -eq 0 ]; then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+if [ "$dataservice" == "" ]; then
+    offline_services=`echo "ls resources" | ${THOME}/../../tungsten-manager/bin/cctrl | grep \| | grep : | grep -v ONLINE | tr -d "| " | cut -f 1,2 -d ":"`
+else
+    #Check dataservice name exists
+    dataservice_check=`echo "ls"| ${THOME}/../../tungsten-manager/bin/cctrl -multi | grep $dataservice | wc -l`
+    if [ $dataservice_check -eq 0 ]; then
+	  echo $CRITICAL_STATE
+	  exit $CRITICAL_STATE
+	fi
+    offline_services=`echo "use $dataservice; ls" | ${THOME}/../../tungsten-manager/bin/cctrl -multi | grep "(\(composite \)\?master\|(\(composite \)\?slave\|(relay" | grep -v ONLINE | tr -d "|" | cut -f 1 -d "("`
+fi
+
+for offline_service in $offline_services
+do
+  offline_count=$(($offline_count+1))
+  error_message="$error_message$error_message_glue$offline_service"
+  error_message_glue=", "
+done
+
+if [ $offline_count -gt 0 ]
+then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+if [ "$dataservice" == "" ]; then
+    shunned=`echo "ls" | ${THOME}/../../tungsten-manager/bin/cctrl | grep 'SHUNNED' | wc -l`
+else
+    shunned=`echo "use $dataservice; ls" | ${THOME}/../../tungsten-manager/bin/cctrl -multi  | grep 'SHUNNED' | wc -l`
+fi
+
+if [ $shunned -gt 0 ]
+then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+
+echo $OK_STATE
+exit $OK_STATE

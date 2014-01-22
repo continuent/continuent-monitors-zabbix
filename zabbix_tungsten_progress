@@ -1,0 +1,80 @@
+#!/bin/bash
+#
+# Simple Bash Script To Check Tungsten Progress
+# Zabbix Plugin For NRPE
+#
+# This script accepts three arguments, {{-w}}, {{-c}} and {{-t}}.  The {{-w}} flag 
+# is the level at which a warning should be returned.  {{-c}} sets the level for 
+# a critical return value.  The {{-t}} flag sets the amount of time used to wait 
+# between monitoring the progress of the cluster.  The script uses the difference 
+# between the values to determine if a warning or critical alert should be 
+# issued
+#
+OK_STATE=0
+CRITICAL_STATE=1
+THOME=`dirname $0`
+
+function display_help()
+{
+  echo "Usage: ./check_tungsten_progress -t time [-h]"
+  echo " -t     The number of seconds to wait when monitoring progress"
+  echo " -h     Display this message"
+  exit 0
+}
+
+# We will use this to make some floating point comparisons
+function float_cond()
+{
+    local cond=0
+    if [[ $# -gt 0 ]]; then
+        cond=$(echo "$*" | bc -q 2>&1)
+        if [[ $? -ne 0 ]]; then
+            echo "Error: $cond"
+            exit 1
+        fi
+        if [[ -z "$cond" ]]; then cond=0; fi
+        if [[ "$cond" != 0  &&  "$cond" != 1 ]]; then cond=0; fi
+    fi
+    local stat=$((cond == 0))
+    return $stat
+}
+
+time_period=1
+while getopts "t:h" Option
+do
+  case $Option in
+    t)
+    time_period=$OPTARG
+    ;;
+    h )
+    display_help
+    ;;
+  esac
+done
+
+if float_cond "$time_period == 0"; then
+  echo "Error: time_period has not been set"
+  echo ""
+  display_help
+fi
+
+is_online=`${THOME}/../../tungsten-replicator/bin/trepctl status | grep "state" | grep "ONLINE" | wc -l`
+if float_cond "$is_online == 0"; then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+pre_progress_number=`${THOME}/../../tungsten-replicator/bin/trepctl status | grep "appliedLastSeqno" | tr -d "| " | awk -F":" '{print $2}'`
+echo "cluster heartbeat" | ${THOME}/../../tungsten-manager/bin/cctrl > /dev/null
+sleep $time_period
+post_progress_number=`${THOME}/../../tungsten-replicator/bin/trepctl status | grep "appliedLastSeqno" | tr -d "| " | awk -F":" '{print $2}'`
+
+progress_number=`echo "$post_progress_number - $pre_progress_number" | bc -q 2>/dev/null`
+
+if float_cond "$progress_number < 1"; then
+  echo $CRITICAL_STATE
+  exit $CRITICAL_STATE
+fi
+
+echo $OK_STATE
+exit $OK_STATE
