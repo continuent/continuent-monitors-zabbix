@@ -15,7 +15,7 @@ THOME=`dirname $0`
 
 function display_help
 {
-  echo "Usage: ./check_tungsten_latency [-r] [-c] [-h]"
+  echo "Usage: ./zabbix_tungsten_services [-r] [-c] [-h]"
   echo " -r     Check the replicator and manager services"
   echo " -c     Check the connector service"
   echo " -h     Display this message"
