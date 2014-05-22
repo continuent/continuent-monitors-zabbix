@@ -16,7 +16,7 @@ THOME=`dirname $0`
 
 function display_help()
 {
-  echo "Usage: ./check_tungsten_progress -t time [-h]"
+  echo "Usage: ./zabbix_tungsten_progress -t time [-h]"
   echo " -t     The number of seconds to wait when monitoring progress"
   echo " -h     Display this message"
   exit 0

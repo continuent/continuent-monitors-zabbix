@@ -14,7 +14,7 @@ THOME=`dirname $0`
 
 function display_help()
 {
-  echo "Usage: ./check_tungsten_latency -w warning_level -c critical_level [-h]"
+  echo "Usage: ./zabbix_tungsten_latency -w warning_level -c critical_level [-h]"
   echo " -w                     Throw a warning alert if the maximum latency"
   echo "                          is above this level"
   echo " -c                     Throw a critical alert if the maximum latency"
