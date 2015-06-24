@@ -105,7 +105,7 @@ if [ "$perfdata" == "true" ]; then
 fi
 
 error_message=""
-error_messaage_glue=""
+error_message_glue=""
 performance_data_glue=""
 performance_data="| "
 max_latency=0
